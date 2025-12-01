@@ -1,0 +1,108 @@
+---
+- name: Déployer rpy-rack (FastAPI + Ollama) sur les Raspberry Pi
+  hosts: rpi_nodes
+  become: true
+
+  vars:
+    repo_url: "git@github.com:Pierre-Loic/rpy-rack.git"
+    repo_version: "main"
+    deploy_key_src: "~/.ssh/rpy_rack_deploy"
+
+  tasks:
+    - name: Vérifier que la clé de déploiement existe sur le poste de contrôle
+      delegate_to: localhost
+      run_once: true
+      become: false 
+      ansible.builtin.stat:
+        path: "{{ deploy_key_src }}"
+      register: deploy_key_stat
+
+    - name: Échec clair si la clé de déploiement est absente
+      delegate_to: localhost
+      run_once: true
+      become: false
+      ansible.builtin.fail:
+        msg: >
+          La clé de déploiement {{ deploy_key_src }} n'existe pas sur le poste de contrôle.
+      when: not deploy_key_stat.stat.exists
+
+    - name: Installer dépendances système (git, docker, plugin compose)
+      ansible.builtin.apt:
+        name:
+          - git
+          - docker.io
+          - docker-compose-plugin
+        state: present
+        update_cache: yes
+
+    - name: Ajouter l'utilisateur au groupe docker
+      ansible.builtin.user:
+        name: "{{ ansible_user }}"
+        groups: docker
+        append: yes
+
+    - name: Créer le répertoire .ssh de l'utilisateur si nécessaire
+      ansible.builtin.file:
+        path: "/home/{{ ansible_user }}/.ssh"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0700"
+
+    - name: Copier la clé SSH de déploiement sur le Raspberry
+      ansible.builtin.copy:
+        src: "{{ deploy_key_src }}"
+        dest: "/home/{{ ansible_user }}/.ssh/id_ed25519"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0600"
+
+    - name: Ajouter GitHub aux known_hosts de l'utilisateur
+      ansible.builtin.known_hosts:
+        name: github.com
+        key: "{{ lookup('pipe', 'ssh-keyscan -t rsa github.com 2>/dev/null') }}"
+        path: "/home/{{ ansible_user }}/.ssh/known_hosts"
+
+    - name: Fixer les permissions du fichier known_hosts
+      ansible.builtin.file:
+        path: "/home/{{ ansible_user }}/.ssh/known_hosts"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0644"
+        
+    - name: Créer le répertoire de l'application
+      ansible.builtin.file:
+        path: "{{ app_dir }}"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0755"
+
+    - name: Cloner / mettre à jour le dépôt rpy-rack
+      become_user: "{{ ansible_user }}"
+      ansible.builtin.git:
+        repo: "{{ repo_url }}"
+        dest: "{{ app_dir }}"
+        version: "{{ repo_version }}"
+        update: yes
+        accept_hostkey: yes
+        key_file: "/home/{{ ansible_user }}/.ssh/id_ed25519"
+
+    - name: Créer le fichier .env pour ce Raspberry
+      ansible.builtin.copy:
+        dest: "{{ app_dir }}/.env"
+        content: |
+          DEVICE_NAME={{ device_name }}
+          OLLAMA_BASE_URL=http://ollama:11434
+          OLLAMA_MODEL={{ ollama_model }}
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0644"
+
+    - name: Lancer les conteneurs avec docker compose
+      become_user: "{{ ansible_user }}"
+      ansible.builtin.command:
+        cmd: docker compose up -d
+        chdir: "{{ app_dir }}"
+      environment:
+        PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"

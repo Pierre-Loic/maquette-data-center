@@ -1,0 +1,4 @@
+ansible -i inventory.ini rpi_nodes -m ping --ask-pass
+ansible-playbook -i inventory.ini deploy_rpy_rack.yml --ask-pass --ask-become-pass
+
+ansible rpi_nodes -i inventory.ini -m command -a "sudo halt" --ask-pass

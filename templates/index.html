@@ -7,7 +7,7 @@
     <style>
         body {
             font-family: sans-serif;
-            max-width: 1000px;
+            max-width: 1200px;
             margin: 0 auto;
             padding: 1rem;
         }
@@ -41,19 +41,30 @@
         #gameStatus {
             margin-top: 0.5rem;
             font-weight: bold;
+            white-space: pre-wrap;
+        }
+        pre {
+            background: #f7f7f7;
+            padding: 0.5rem;
+            border-radius: 5px;
+            overflow-x: auto;
         }
     </style>
 </head>
+
 <body>
     <h1>Jeu : prédire les températures des Raspberry Pi</h1>
 
     <div class="grid">
+
+        <!-- ======================= GRAPHIQUE ======================= -->
         <div class="card">
             <h2>Températures en temps réel</h2>
             <p>Actualisation toutes les secondes.</p>
             <canvas id="tempChart" width="800" height="400"></canvas>
         </div>
 
+        <!-- ======================= FORMULAIRE DU JEU ======================= -->
         <div class="card">
             <h2>Votre prédiction</h2>
             <form id="gameForm">
@@ -74,23 +85,24 @@
                 <button type="submit">Lancer le jeu</button>
 
                 <div id="gameStatus"></div>
+                <div id="ollamaResponses" style="margin-top: 1rem;"></div>
             </form>
         </div>
+
     </div>
 
+    <!-- ======================= JAVASCRIPT ======================= -->
     <script>
-        // --- Graphique des températures ---
+        // ----------------------- GRAPH -----------------------
         const ctx = document.getElementById('tempChart').getContext('2d');
         const labels = [];
 
-        // Les noms des RPi sont injectés par Flask dans le template :
         const raspberries = {{ raspberries|tojson }};
-        const datasets = raspberries.map((name, idx) => {
-            return {
-                label: name,
-                data: [],
-            };
-        });
+
+        const datasets = raspberries.map((name) => ({
+            label: name,
+            data: [],
+        }));
 
         const config = {
             type: 'line',
@@ -127,12 +139,33 @@
         }
 
         fetchTemperatures();
-        setInterval(fetchTemperatures, 1000);
+        setInterval(fetchTemperatures, 2000);
 
-        // --- Logique du jeu ---
+        // ----------------------- JEU -----------------------
         const gameForm = document.getElementById('gameForm');
         const gameStatusDiv = document.getElementById('gameStatus');
+        const ollamaResponsesDiv = document.getElementById('ollamaResponses');
         let gameInterval = null;
+
+        function renderOllamaResponses(responses) {
+            if (!responses) {
+                ollamaResponsesDiv.textContent = '';
+                return;
+            }
+
+            let html = '<h3>Réponses d’Ollama</h3><ul>';
+
+            for (const [name, text] of Object.entries(responses)) {
+                html += `
+                    <li>
+                        <strong>${name}</strong><br>
+                        <pre>${text}</pre>
+                    </li>`;
+            }
+
+            html += '</ul>';
+            ollamaResponsesDiv.innerHTML = html;
+        }
 
         gameForm.addEventListener('submit', async (event) => {
             event.preventDefault();
@@ -156,6 +189,9 @@
                 if (json.status === 'started') {
                     gameStatusDiv.textContent =
                         `Partie lancée ! Résultat dans environ ${json.check_after_seconds} s...`;
+
+                    renderOllamaResponses(json.ollama_responses);
+
                     startPollingGameStatus();
                 } else {
                     gameStatusDiv.textContent = 'Impossible de lancer la partie.';
@@ -171,24 +207,30 @@
                 const res = await fetch('/api/game_status');
                 const json = await res.json();
 
-                if (json.status === 'no_game') {
-                    return;
-                }
+                if (json.status === 'no_game') return;
 
                 if (json.status === 'waiting') {
                     gameStatusDiv.textContent =
                         `Partie en cours... encore ${json.remaining_seconds} s.`;
+
+                    renderOllamaResponses(json.ollama_responses);
                 }
 
                 if (json.status === 'finished') {
                     clearInterval(gameInterval);
-                    let msg = `Partie terminée ! Score : ${json.score.toFixed(1)} points.\n`;
+
+                    let msg = `Partie terminée ! Score : ${json.score.toFixed(1)} points.\n\n`;
                     msg += 'Erreurs par Raspberry Pi (en °C) :\n';
+
                     for (const [name, err] of Object.entries(json.errors)) {
                         msg += `- ${name} : ${err === null ? 'N/A' : err.toFixed(2)}\n`;
                     }
+
                     gameStatusDiv.textContent = msg;
+
+                    renderOllamaResponses(json.ollama_responses);
                 }
+
             } catch (err) {
                 console.error('Erreur game_status:', err);
             }
