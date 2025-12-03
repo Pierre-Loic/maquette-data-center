@@ -4,9 +4,6 @@
     <meta charset="UTF-8">
     <title>Jeu des températures – Raspberry Pi</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <!-- Plugin pour les annotations (lignes verticales) -->
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@1.4.0"></script>
-
     <style>
         body {
             font-family: sans-serif;
@@ -90,7 +87,7 @@
         <!-- ======================= GRAPHIQUE ======================= -->
         <div class="card">
             <h2>Températures en temps réel</h2>
-            <p>Actualisation toutes les 2 secondes.</p>
+            <p>Actualisation toutes les secondes.</p>
             <canvas id="tempChart" width="800" height="400"></canvas>
 
             <!-- Blocs de réponses + températures max sous le graphique -->
@@ -120,6 +117,7 @@
 
                 <div id="gameStatus"></div>
 
+                <!-- Ancien conteneur global (on le garde mais il n’est plus utilisé) -->
                 <div id="ollamaResponses" style="margin-top: 1rem;"></div>
             </form>
         </div>
@@ -146,16 +144,12 @@
         const datasets = raspberries.map((name, idx) => ({
             label: name,
             data: [],
-            borderColor: COLORS[idx % COLORS.length],
-            backgroundColor: COLORS[idx % COLORS.length] + '33',
-            tension: 0.2,
-            pointRadius: 2,
-            borderWidth: 2,
+            borderColor: COLORS[idx % COLORS.length],      // couleur de la ligne
+            backgroundColor: COLORS[idx % COLORS.length] + '33', // zone sous la courbe (33 = ~20% opacité en hex)
+            tension: 0.2,          // optionnel : arrondir un peu les courbes
+            pointRadius: 2,        // taille des points
+            borderWidth: 2,        // épaisseur de la ligne
         }));
-
-        // Labels pour la fenêtre de calcul, côté graphique (catégorie X)
-        let windowStartLabel = null;
-        let windowEndLabel = null;
 
         const config = {
             type: 'line',
@@ -165,105 +159,50 @@
                 scales: {
                     y: { title: { display: true, text: 'Température (°C)' } },
                     x: { title: { display: true, text: 'Temps' } }
-                },
-                plugins: {
-                    annotation: {
-                        annotations: {
-                            windowStart: {
-                                type: 'line',
-                                xMin: null,
-                                xMax: null,
-                                borderColor: '#27ae60',
-                                borderWidth: 2,
-                                borderDash: [4, 4],
-                                label: {
-                                    enabled: true,
-                                    content: 'Début fenêtre',
-                                    rotation: -90,
-                                    backgroundColor: 'rgba(39, 174, 96, 0.8)'
-                                }
-                            },
-                            windowEnd: {
-                                type: 'line',
-                                xMin: null,
-                                xMax: null,
-                                borderColor: '#c0392b',
-                                borderWidth: 2,
-                                borderDash: [4, 4],
-                                label: {
-                                    enabled: true,
-                                    content: 'Fin fenêtre',
-                                    rotation: -90,
-                                    backgroundColor: 'rgba(192, 57, 43, 0.8)'
-                                }
-                            }
-                        }
-                    }
                 }
             }
         };
 
         const tempChart = new Chart(ctx, config);
 
-        function updateAnnotations() {
-            const ann = tempChart.options.plugins.annotation.annotations;
-            // Si pas encore de fenêtre -> on cache
-            if (!windowStartLabel) {
-                ann.windowStart.xMin = ann.windowStart.xMax = null;
-            } else {
-                ann.windowStart.xMin = windowStartLabel;
-                ann.windowStart.xMax = windowStartLabel;
-            }
-
-            if (!windowEndLabel) {
-                ann.windowEnd.xMin = ann.windowEnd.xMax = null;
-            } else {
-                ann.windowEnd.xMin = windowEndLabel;
-                ann.windowEnd.xMax = windowEndLabel;
-            }
-
-            tempChart.update();
-        }
-
         // ---------- Blocs de réponses / max temp sous le graphe ----------
         const rpiBlocksContainer = document.getElementById('rpiBlocksContainer');
         const rpiBlocks = {};     // name -> DOM block
+        const maxTemps = {};      // name -> max temp depuis début du prompt
+        let gameActive = false;   // true après lancement du jeu
 
         raspberries.forEach((name) => {
             const block = document.createElement('div');
             block.className = 'rpi-block';
             block.innerHTML = `
                 <h3>${name}</h3>
-                <p class="rpi-max-temp">Température max pendant l'inférence : -- °C</p>
+                <p class="rpi-max-temp">Température max : -- °C</p>
                 <h4>Réponse d’Ollama</h4>
                 <pre class="rpi-response">(en attente...)</pre>
             `;
             rpiBlocksContainer.appendChild(block);
             rpiBlocks[name] = block;
+            maxTemps[name] = null;
         });
 
-        function resetMaxTempDisplay() {
-            raspberries.forEach((name) => {
-                const block = rpiBlocks[name];
-                if (!block) return;
-                const p = block.querySelector('.rpi-max-temp');
-                p.textContent = "Température max pendant l'inférence : -- °C";
-            });
+        function updateMaxTempDisplay(name) {
+            const block = rpiBlocks[name];
+            if (!block) return;
+            const p = block.querySelector('.rpi-max-temp');
+            const value = maxTemps[name];
+            if (value == null) {
+                p.textContent = 'Température max : -- °C';
+            } else {
+                p.textContent =
+                    `Température max depuis le début du prompt : ${value.toFixed(1)} °C`;
+            }
         }
 
-        function updateMaxTempsFromBackend(actualTemps) {
-            if (!actualTemps) return;
-            for (const name of raspberries) {
-                const block = rpiBlocks[name];
-                if (!block) continue;
-                const p = block.querySelector('.rpi-max-temp');
-                const value = actualTemps[name];
-                if (value == null) {
-                    p.textContent = "Température max pendant l'inférence : N/A";
-                } else {
-                    p.textContent = `Température max pendant l'inférence : ${value.toFixed(1)} °C`;
-                }
-            }
+        function resetMaxTemps() {
+            raspberries.forEach((name) => {
+                maxTemps[name] = null;
+                updateMaxTempDisplay(name);
+            });
         }
 
         async function fetchTemperatures() {
@@ -279,6 +218,14 @@
                     const temp = json.temperatures[name];
                     dataset.data.push(temp);
                     if (dataset.data.length > 50) dataset.data.shift();
+
+                    // Mise à jour de la température max en direct pendant la partie
+                    if (gameActive && temp != null) {
+                        if (maxTemps[name] == null || temp > maxTemps[name]) {
+                            maxTemps[name] = temp;
+                            updateMaxTempDisplay(name);
+                        }
+                    }
                 });
 
                 tempChart.update();
@@ -287,23 +234,18 @@
             }
         }
 
-        // On garde un interval pour les températures (peut être stoppé si besoin)
-        let tempInterval = null;
-        function startTempPolling() {
-            if (tempInterval) clearInterval(tempInterval);
-            tempInterval = setInterval(fetchTemperatures, 2000);
-        }
-
         fetchTemperatures();
-        startTempPolling();
+        setInterval(fetchTemperatures, 2000);
 
         // ----------------------- JEU -----------------------
         const gameForm = document.getElementById('gameForm');
         const gameStatusDiv = document.getElementById('gameStatus');
-        const ollamaResponsesDiv = document.getElementById('ollamaResponses');
+        const ollamaResponsesDiv = document.getElementById('ollamaResponses'); // plus vraiment utilisé
         let gameInterval = null;
+        let startDelayInterval = null;  // timer de 5 secondes après les réponses Ollama
 
         function renderOllamaResponses(responses) {
+            // Affichage dans les blocs sous le graphe
             if (!responses) {
                 raspberries.forEach((name) => {
                     const block = rpiBlocks[name];
@@ -311,6 +253,7 @@
                     const pre = block.querySelector('.rpi-response');
                     pre.textContent = '(en attente...)';
                 });
+                // On vide aussi l’ancien div
                 ollamaResponsesDiv.textContent = '';
                 return;
             }
@@ -323,6 +266,7 @@
                 pre.textContent = text;
             });
 
+            // Pour compatibilité, petit résumé texte dans l’ancien div
             let html = '<h3>Réponses d’Ollama</h3><ul>';
             for (const [name, text] of Object.entries(responses)) {
                 html += `
@@ -355,24 +299,41 @@
                 const json = await res.json();
 
                 if (json.status === 'started') {
+                    // On considère que toutes les réponses Ollama sont reçues ici
                     renderOllamaResponses(json.ollama_responses);
-                    resetMaxTempDisplay();
 
-                    // On efface les anciennes annotations
-                    windowStartLabel = null;
-                    windowEndLabel = null;
-                    updateAnnotations();
+                    // La partie est "active" pour la mise à jour des températures max
+                    gameActive = true;
+                    resetMaxTemps();
 
-                    if (json.measurement_window_seconds != null) {
-                        gameStatusDiv.textContent =
-                            `Mesure de la température pendant l'inférence en cours...\n` +
-                            `Résultat dans environ ${json.measurement_window_seconds} s.`;
-                    } else {
-                        gameStatusDiv.textContent =
-                            `Mesure de la température pendant l'inférence en cours...`;
+                    // Timer 5 s avant de commencer les vérifications /api/game_status
+                    let countdown = 5;
+
+                    if (gameInterval) {
+                        clearInterval(gameInterval);
+                        gameInterval = null;
+                    }
+                    if (startDelayInterval) {
+                        clearInterval(startDelayInterval);
                     }
 
-                    startPollingGameStatus();
+                    gameStatusDiv.textContent =
+                        `Réponses reçues. Début de la mesure dans ${countdown} s...`;
+
+                    startDelayInterval = setInterval(() => {
+                        countdown -= 1;
+                        if (countdown > 0) {
+                            gameStatusDiv.textContent =
+                                `Réponses reçues. Début de la mesure dans ${countdown} s...`;
+                        } else {
+                            clearInterval(startDelayInterval);
+                            startDelayInterval = null;
+                            gameStatusDiv.textContent =
+                                `Partie lancée ! Résultat dans environ ${json.check_after_seconds} s...`;
+                            startPollingGameStatus();
+                        }
+                    }, 1000);
+
                 } else {
                     gameStatusDiv.textContent = 'Impossible de lancer la partie.';
                 }
@@ -389,24 +350,9 @@
 
                 if (json.status === 'no_game') return;
 
-                // Récupération des labels de fenêtre (début/fin) envoyés par le backend
-                if (json.window_start_label) {
-                    windowStartLabel = json.window_start_label;
-                }
-                if (json.window_end_label) {
-                    windowEndLabel = json.window_end_label;
-                }
-                updateAnnotations();
-
                 if (json.status === 'waiting') {
-                    if (json.remaining_seconds != null) {
-                        gameStatusDiv.textContent =
-                            `Mesure de la température pendant l'inférence...\n` +
-                            `Encore ${json.remaining_seconds} s environ.`;
-                    } else {
-                        gameStatusDiv.textContent =
-                            `Mesure de la température pendant l'inférence...`;
-                    }
+                    gameStatusDiv.textContent =
+                        `Partie en cours... encore ${json.remaining_seconds} s.`;
 
                     renderOllamaResponses(json.ollama_responses);
                 }
@@ -414,6 +360,7 @@
                 if (json.status === 'finished') {
                     clearInterval(gameInterval);
                     gameInterval = null;
+                    gameActive = false;  // on arrête de mettre à jour les max
 
                     let msg = `Partie terminée ! Score : ${json.score.toFixed(1)} points.\n\n`;
                     msg += 'Erreurs par Raspberry Pi (en °C) :\n';
@@ -425,7 +372,6 @@
                     gameStatusDiv.textContent = msg;
 
                     renderOllamaResponses(json.ollama_responses);
-                    updateMaxTempsFromBackend(json.actual_temperatures);
                 }
 
             } catch (err) {

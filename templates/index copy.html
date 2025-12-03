@@ -4,9 +4,6 @@
     <meta charset="UTF-8">
     <title>Jeu des températures – Raspberry Pi</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <!-- Plugin pour les annotations (lignes verticales) -->
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@1.4.0"></script>
-
     <style>
         body {
             font-family: sans-serif;
@@ -120,6 +117,7 @@
 
                 <div id="gameStatus"></div>
 
+                <!-- Ancien conteneur global (on le garde mais il n’est plus utilisé directement) -->
                 <div id="ollamaResponses" style="margin-top: 1rem;"></div>
             </form>
         </div>
@@ -153,10 +151,6 @@
             borderWidth: 2,
         }));
 
-        // Labels pour la fenêtre de calcul, côté graphique (catégorie X)
-        let windowStartLabel = null;
-        let windowEndLabel = null;
-
         const config = {
             type: 'line',
             data: { labels: labels, datasets: datasets },
@@ -165,65 +159,11 @@
                 scales: {
                     y: { title: { display: true, text: 'Température (°C)' } },
                     x: { title: { display: true, text: 'Temps' } }
-                },
-                plugins: {
-                    annotation: {
-                        annotations: {
-                            windowStart: {
-                                type: 'line',
-                                xMin: null,
-                                xMax: null,
-                                borderColor: '#27ae60',
-                                borderWidth: 2,
-                                borderDash: [4, 4],
-                                label: {
-                                    enabled: true,
-                                    content: 'Début fenêtre',
-                                    rotation: -90,
-                                    backgroundColor: 'rgba(39, 174, 96, 0.8)'
-                                }
-                            },
-                            windowEnd: {
-                                type: 'line',
-                                xMin: null,
-                                xMax: null,
-                                borderColor: '#c0392b',
-                                borderWidth: 2,
-                                borderDash: [4, 4],
-                                label: {
-                                    enabled: true,
-                                    content: 'Fin fenêtre',
-                                    rotation: -90,
-                                    backgroundColor: 'rgba(192, 57, 43, 0.8)'
-                                }
-                            }
-                        }
-                    }
                 }
             }
         };
 
         const tempChart = new Chart(ctx, config);
-
-        function updateAnnotations() {
-            const ann = tempChart.options.plugins.annotation.annotations;
-            // Si pas encore de fenêtre -> on cache
-            if (!windowStartLabel) {
-                ann.windowStart.xMin = ann.windowStart.xMax = null;
-            } else {
-                ann.windowStart.xMin = windowStartLabel;
-                ann.windowStart.xMax = windowStartLabel;
-            }
-
-            if (!windowEndLabel) {
-                ann.windowEnd.xMin = ann.windowEnd.xMax = null;
-            } else {
-                ann.windowEnd.xMin = windowEndLabel;
-                ann.windowEnd.xMax = windowEndLabel;
-            }
-
-            tempChart.update();
-        }
 
         // ---------- Blocs de réponses / max temp sous le graphe ----------
         const rpiBlocksContainer = document.getElementById('rpiBlocksContainer');
@@ -287,15 +227,8 @@
             }
         }
 
-        // On garde un interval pour les températures (peut être stoppé si besoin)
-        let tempInterval = null;
-        function startTempPolling() {
-            if (tempInterval) clearInterval(tempInterval);
-            tempInterval = setInterval(fetchTemperatures, 2000);
-        }
-
         fetchTemperatures();
-        startTempPolling();
+        setInterval(fetchTemperatures, 2000);
 
         // ----------------------- JEU -----------------------
         const gameForm = document.getElementById('gameForm');
@@ -304,6 +237,7 @@
         let gameInterval = null;
 
         function renderOllamaResponses(responses) {
+            // Affichage dans les blocs sous le graphe
             if (!responses) {
                 raspberries.forEach((name) => {
                     const block = rpiBlocks[name];
@@ -323,6 +257,7 @@
                 pre.textContent = text;
             });
 
+            // Pour compatibilité, petit résumé texte dans l’ancien div
             let html = '<h3>Réponses d’Ollama</h3><ul>';
             for (const [name, text] of Object.entries(responses)) {
                 html += `
@@ -358,11 +293,7 @@
                     renderOllamaResponses(json.ollama_responses);
                     resetMaxTempDisplay();
 
-                    // On efface les anciennes annotations
-                    windowStartLabel = null;
-                    windowEndLabel = null;
-                    updateAnnotations();
-
+                    // info optionnelle fournie par le backend : durée de la fenêtre
                     if (json.measurement_window_seconds != null) {
                         gameStatusDiv.textContent =
                             `Mesure de la température pendant l'inférence en cours...\n` +
@@ -372,6 +303,8 @@
                             `Mesure de la température pendant l'inférence en cours...`;
                     }
 
+                    // On commence tout de suite à sonder /api/game_status,
+                    // c'est lui qui gère la fenêtre [prompt ; dernière réponse + 10s]
                     startPollingGameStatus();
                 } else {
                     gameStatusDiv.textContent = 'Impossible de lancer la partie.';
@@ -388,15 +321,6 @@
                 const json = await res.json();
 
                 if (json.status === 'no_game') return;
-
-                // Récupération des labels de fenêtre (début/fin) envoyés par le backend
-                if (json.window_start_label) {
-                    windowStartLabel = json.window_start_label;
-                }
-                if (json.window_end_label) {
-                    windowEndLabel = json.window_end_label;
-                }
-                updateAnnotations();
 
                 if (json.status === 'waiting') {
                     if (json.remaining_seconds != null) {
