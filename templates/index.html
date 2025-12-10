@@ -106,6 +106,37 @@
         #countdownValue {
             font-variant-numeric: tabular-nums;
         }
+
+        /* Le bloc RPi reste une carte pleine hauteur */
+        .rpi-block.card {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Le corps de la carte ne s'agrandit pas à l'infini */
+        .rpi-block .card-body {
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Zone de réponse : hauteur max + scroll vertical */
+        pre.rpi-response {
+            background: #f8f9fa;
+            padding: 0.5rem;
+            border-radius: 0.5rem;
+            margin-bottom: 0;
+
+            /* Empêche le scroll horizontal */
+            white-space: pre-wrap;
+            word-wrap: break-word;
+
+            /* important pour le scroll */
+            flex: 1 1 auto;        /* occupe l'espace restant */
+            max-height: 300px;     /* à ajuster selon ton goût */
+            overflow-y: auto;      /* barre de scroll verticale */
+        }
+
     </style>
 </head>
 

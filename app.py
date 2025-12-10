@@ -112,46 +112,55 @@ def api_temperatures():
 def start_game():
     global current_game
 
-    data = request.get_json() or {}
-    prompt = data.get("prompt", "")
-    predictions = data.get("predictions", {}) or {}
+    try:
+        data = request.get_json() or {}
+        prompt = data.get("prompt", "")
+        predictions = data.get("predictions", {}) or {}
 
-    # ↓ début de la fenêtre : au moment où on envoie les prompts
-    window_start = time.time()
+        # début de la fenêtre : juste avant l'envoi des prompts
+        window_start = time.time()
 
-    # Appel à Ollama sur chaque Raspberry Pi (en séquentiel ou parallèle)
-    ollama_responses = {}
-    for rpi in RASPBERRIES:
-        name = rpi["name"]
-        url = rpi["ollama_url"]
-        try:
-            payload = {"prompt": prompt}
-            res = requests.post(url, json=payload, timeout=120)
-            res.raise_for_status()
-            resp_json = res.json()
-            ollama_responses[name] = resp_json.get("response", "(aucune réponse)")
-        except Exception as e:
-            print(f"Erreur appel Ollama pour {name} ({url}): {e}")
-            ollama_responses[name] = f"Erreur en appelant Ollama sur {name}."
+        ollama_responses = {}
 
-    last_response_at = time.time()
-    window_end = last_response_at + 10.0   # 10 s après la fin de l’inférence
+        # --- APPELS OLLAMA EN PARALLÈLE ---
+        with ThreadPoolExecutor(max_workers=len(RASPBERRIES)) as executor:
+            futures = [
+                executor.submit(call_ollama, rpi, prompt)
+                for rpi in RASPBERRIES
+            ]
 
-    current_game["prompt"] = prompt
-    current_game["predictions"] = predictions
-    current_game["ollama_responses"] = ollama_responses
-    current_game["window_start"] = window_start
-    current_game["window_end"] = window_end
+            for future in as_completed(futures):
+                name, response = future.result()
+                ollama_responses[name] = response
+        # --- FIN PARALLÈLE ---
 
-    # pour info côté front
-    duration = int(window_end - window_start)
+        last_response_at = time.time()
+        window_end = last_response_at + 10.0   # 10 s après la fin de l’inférence
 
-    return jsonify({
-        "status": "started",
-        "measurement_window_seconds": duration,
-        "ollama_responses": ollama_responses,
-    })
+        current_game["prompt"] = prompt
+        current_game["predictions"] = predictions
+        current_game["ollama_responses"] = ollama_responses
+        current_game["window_start"] = window_start
+        current_game["window_end"] = window_end
 
+        duration = int(window_end - window_start)
+
+        return jsonify({
+            "status": "started",
+            "measurement_window_seconds": duration,
+            "ollama_responses": ollama_responses,
+        })
+
+    except Exception as e:
+        # log détaillé côté serveur
+        app.logger.exception("Erreur dans /api/start_game")
+        # JSON propre côté front (pour que res.json() ne plante pas)
+        return jsonify({
+            "status": "error",
+            "message": f"Exception côté serveur: {str(e)}"
+        }), 500
+    
+    
 @app.route("/api/game_status")
 def game_status():
     window_start = current_game.get("window_start")
