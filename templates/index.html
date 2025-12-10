@@ -3,128 +3,253 @@
 <head>
     <meta charset="UTF-8">
     <title>Jeu des températures – Raspberry Pi</title>
+
+    <!-- Bootstrap 5 CSS -->
+    <link
+        href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+        rel="stylesheet"
+        integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH"
+        crossorigin="anonymous"
+    >
+
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
     <style>
-        body {
-            font-family: sans-serif;
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 1rem;
-        }
-        .grid {
-            display: grid;
-            grid-template-columns: 2fr 1fr;
-            gap: 1.5rem;
-            align-items: flex-start;
-        }
-        .card {
-            border: 1px solid #ddd;
-            border-radius: 8px;
-            padding: 1rem;
-            margin-top: 1rem;
-        }
-        label {
-            display: block;
-            margin-bottom: 0.5rem;
-        }
-        input[type="number"] {
-            width: 100%;
-        }
-        textarea {
-            width: 100%;
-        }
-        button {
-            padding: 0.5rem 1rem;
-            margin-top: 0.5rem;
-            cursor: pointer;
-        }
-        #gameStatus {
-            margin-top: 0.5rem;
-            font-weight: bold;
-            white-space: pre-wrap;
-        }
-        pre {
-            background: #f7f7f7;
-            padding: 0.5rem;
-            border-radius: 5px;
-            overflow-x: auto;
+        html, body {
+            height: 100%;
+            overflow: hidden; /* pas de scroll global */
         }
 
-        /* --------- Blocs de réponses sous le graphique --------- */
+        body {
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+
+        /* Conteneur global du dashboard */
+        .dashboard {
+            height: 100vh;        /* plein écran */
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Zone principale (sous la navbar) */
+        .dashboard-main {
+            flex: 1 1 auto;
+        }
+
+        /* Les cartes occupent toute la hauteur disponible et scrollent en interne si besoin */
+        .card-fullheight {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .card-fullheight .card-body-scroll {
+            flex: 1 1 auto;
+            overflow: auto;
+        }
+
+        /* Blocs sous le graphique */
         .rpi-blocks-container {
-            display: grid;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-            gap: 1rem;
-            margin-top: 1rem;
+            margin-top: 0.5rem;
         }
-        .rpi-block {
-            border: 1px solid #ddd;
-            border-radius: 6px;
-            padding: 0.75rem;
-            background: #fafafa;
-        }
+
         .rpi-block h3 {
-            margin-top: 0;
             margin-bottom: 0.25rem;
         }
+
         .rpi-max-temp {
             font-size: 0.9rem;
             font-style: italic;
             margin-top: 0.1rem;
             margin-bottom: 0.5rem;
         }
-        .rpi-block h4 {
-            margin: 0.25rem 0;
+
+        pre.rpi-response {
+            background: #f8f9fa;
+            padding: 0.5rem;
+            border-radius: 0.5rem;
+            overflow-x: auto;
+            margin-bottom: 0;
+        }
+
+        /* Boutons de modèle */
+        .model-buttons .model-btn {
+            margin-right: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .model-btn.active {
+            box-shadow: 0 0 0 0.2rem rgba(13,110,253,0.25);
+        }
+
+        /* Zone du graphique : moins haut, plus de place aux blocs */
+        .chart-wrapper {
+            flex: 0 0 50%;      /* ~45% de la hauteur de la carte */
+            min-height: 200px;
+            max-height: 600px;  /* limite max */
+        }
+
+        #tempChart {
+            width: 100% !important;
+            height: 100% !important;
+        }
+
+        /* Conteneur des blocs RPi : prend le reste de la carte */
+        .rpi-blocks-scroll {
+            flex: 1 1 auto;
+            max-height: none;
+            overflow: auto;
+        }
+
+        /* Compte à rebours : chiffres bien alignés */
+        #countdownValue {
+            font-variant-numeric: tabular-nums;
         }
     </style>
 </head>
 
-<body>
-    <h1>Jeu : prédire les températures des Raspberry Pi</h1>
+<body class="bg-light">
+    <div class="dashboard">
 
-    <div class="grid">
+        <!-- En-tête -->
+        <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+            <div class="container-fluid">
+                <span class="navbar-brand mb-0 h1">
+                    Jeu : prédire les températures des Raspberry Pi
+                </span>
+            </div>
+        </nav>
 
-        <!-- ======================= GRAPHIQUE ======================= -->
-        <div class="card">
-            <h2>Températures en temps réel</h2>
-            <p>Actualisation toutes les 2 secondes.</p>
-            <canvas id="tempChart" width="800" height="400"></canvas>
+        <!-- Zone principale plein écran -->
+        <div class="dashboard-main container-fluid py-2">
+            <div class="row h-100 g-3">
 
-            <!-- Blocs de réponses + températures max sous le graphique -->
-            <div id="rpiBlocksContainer" class="rpi-blocks-container"></div>
-        </div>
+                <!-- ======================= GRAPHIQUE ======================= -->
+                <div class="col-lg-8 d-flex">
+                    <div class="card card-fullheight shadow-sm w-100">
+                        <div class="card-body d-flex flex-column">
+                            <div class="mb-2">
+                                <h2 class="h5 card-title mb-1">Températures en temps réel</h2>
+                                <p class="text-muted mb-0">Actualisation toutes les 2 secondes.</p>
+                            </div>
 
-        <!-- ======================= FORMULAIRE DU JEU ======================= -->
-        <div class="card">
-            <h2>Votre prédiction</h2>
-            <form id="gameForm">
+                            <!-- Zone graphique -->
+                            <div class="chart-wrapper mb-2">
+                                <canvas id="tempChart"></canvas>
+                            </div>
 
-                <div>
-                    {% for name in raspberries %}
-                        <label>
-                            Température maximale prévue pour {{ name }} (°C) :
-                            <input type="number" step="0.1" id="pred-{{ name }}" required>
-                        </label>
-                    {% endfor %}
+                            <!-- Blocs de réponses + températures max sous le graphique -->
+                            <div id="rpiBlocksContainer"
+                                 class="rpi-blocks-container rpi-blocks-scroll row row-cols-1 row-cols-md-3 g-2">
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
-                <label>
-                    Prompt pour Ollama :
-                    <textarea id="prompt" rows="4" placeholder="Choisis bien ton prompt..."></textarea>
-                </label>
+                <!-- ======================= FORMULAIRE DU JEU ======================= -->
+                <div class="col-lg-4 d-flex">
+                    <div class="card card-fullheight shadow-sm w-100">
+                        <div class="card-body card-body-scroll">
+                            <h2 class="h5 card-title mb-3">Votre prédiction</h2>
 
-                <button type="submit">Lancer le jeu</button>
+                            <form id="gameForm" novalidate>
+                                <!-- Prénom -->
+                                <div class="mb-3">
+                                    <label for="playerName" class="form-label">Prénom du joueur</label>
+                                    <input type="text" id="playerName" class="form-control" required>
+                                </div>
 
-                <div id="gameStatus"></div>
+                                <!-- Choix du modèle -->
+                                <div class="mb-3">
+                                    <label class="form-label d-block">Choix du modèle</label>
+                                    <div class="model-buttons btn-group" role="group" aria-label="Choix du modèle">
+                                        <button type="button" class="model-btn btn btn-outline-primary active" data-model="petit">
+                                            Petit modèle<br>
+                                            (gemma3:270m)
+                                        </button>
+                                        <button type="button" class="model-btn btn btn-outline-primary" data-model="moyen" disabled>
+                                            Moyen modèle<br>
+                                            (falcon3:1b)
+                                        </button>
+                                        <button type="button" class="model-btn btn btn-outline-primary" data-model="grand" disabled>
+                                            Grand modèle<br>
+                                            (qwen3:1.7b)
+                                        </button>
+                                    </div>
+                                </div>
 
-                <!-- Ancien conteneur global (on le garde mais il n’est plus utilisé directement) -->
-                <div id="ollamaResponses" style="margin-top: 1rem;"></div>
-            </form>
+                                <!-- Températures prévues -->
+                                <div class="mb-3">
+                                    <label class="form-label">Températures maximales prévues (°C)</label>
+                                    <div class="row g-2">
+                                        {% for name in raspberries %}
+                                            <div class="col-12">
+                                                <label for="pred-{{ name }}" class="form-label">
+                                                    {{ name }}
+                                                </label>
+                                                <input type="number"
+                                                       step="0.1"
+                                                       id="pred-{{ name }}"
+                                                       class="form-control"
+                                                       required>
+                                            </div>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+
+                                <!-- Prompt -->
+                                <div class="mb-3">
+                                    <label for="prompt" class="form-label">Prompt pour Ollama</label>
+                                    <textarea id="prompt"
+                                              rows="4"
+                                              class="form-control"
+                                              placeholder="Choisissez bien votre prompt..."></textarea>
+                                </div>
+
+                                <button type="submit" class="btn btn-success w-100">
+                                    Lancer le jeu
+                                </button>
+
+                                <!-- Compte à rebours visuel -->
+                                <div id="countdownTimer" class="mt-3 d-none text-center">
+                                    <div class="fw-semibold small text-muted mb-1">Temps restant</div>
+                                    <div id="countdownValue" class="display-6 lh-1">-- s</div>
+                                    <div class="progress mt-2" style="height: 0.5rem;">
+                                        <div id="countdownProgress"
+                                             class="progress-bar"
+                                             role="progressbar"
+                                             style="width: 0%;"
+                                             aria-valuemin="0"
+                                             aria-valuemax="100"
+                                             aria-valuenow="0">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Zone de résultats / classement -->
+                                <div id="gameStatus" class="mt-3 text-wrap small"></div>
+
+                                <!-- Conteneur optionnel pour un affichage global -->
+                                <div id="ollamaResponses" class="mt-2 small text-muted"></div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
         </div>
 
     </div>
 
     <!-- ======================= JAVASCRIPT ======================= -->
+    <!-- Bootstrap JS (bundle + Popper) -->
+    <script
+        src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+        integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz"
+        crossorigin="anonymous">
+    </script>
+
     <script>
         // ----------------------- GRAPH -----------------------
         const ctx = document.getElementById('tempChart').getContext('2d');
@@ -156,6 +281,7 @@
             data: { labels: labels, datasets: datasets },
             options: {
                 responsive: true,
+                maintainAspectRatio: false,   // important pour que ça remplisse la zone
                 scales: {
                     y: { title: { display: true, text: 'Température (°C)' } },
                     x: { title: { display: true, text: 'Temps' } }
@@ -170,16 +296,20 @@
         const rpiBlocks = {};     // name -> DOM block
 
         raspberries.forEach((name) => {
-            const block = document.createElement('div');
-            block.className = 'rpi-block';
-            block.innerHTML = `
-                <h3>${name}</h3>
-                <p class="rpi-max-temp">Température max pendant l'inférence : -- °C</p>
-                <h4>Réponse d’Ollama</h4>
-                <pre class="rpi-response">(en attente...)</pre>
+            const col = document.createElement('div');
+            col.className = 'col';
+            col.innerHTML = `
+                <div class="rpi-block card h-100">
+                    <div class="card-body p-2">
+                        <h3 class="h6">${name}</h3>
+                        <p class="rpi-max-temp text-muted">Température max pendant l'inférence : -- °C</p>
+                        <h4 class="h6">Réponse d’Ollama</h4>
+                        <pre class="rpi-response">(en attente...)</pre>
+                    </div>
+                </div>
             `;
-            rpiBlocksContainer.appendChild(block);
-            rpiBlocks[name] = block;
+            rpiBlocksContainer.appendChild(col);
+            rpiBlocks[name] = col.querySelector('.rpi-block');
         });
 
         function resetMaxTempDisplay() {
@@ -230,11 +360,23 @@
         fetchTemperatures();
         setInterval(fetchTemperatures, 2000);
 
-        // ----------------------- JEU -----------------------
+        // ----------------------- JEU + COMPTE À REBOURS + CLASSEMENT -----------------------
         const gameForm = document.getElementById('gameForm');
         const gameStatusDiv = document.getElementById('gameStatus');
         const ollamaResponsesDiv = document.getElementById('ollamaResponses');
+
+        const countdownTimerDiv = document.getElementById('countdownTimer');
+        const countdownValueSpan = document.getElementById('countdownValue');
+        const countdownProgressBar = document.getElementById('countdownProgress');
+
         let gameInterval = null;
+        let countdownInterval = null;
+        let countdownEndTime = null;  // timestamp en ms
+        let countdownTotal = null;    // durée totale en secondes
+
+        // leaderboard en mémoire côté client (session)
+        let leaderboard = []; // { name, score }
+        let currentPlayerName = '';
 
         function renderOllamaResponses(responses) {
             // Affichage dans les blocs sous le graphe
@@ -245,7 +387,9 @@
                     const pre = block.querySelector('.rpi-response');
                     pre.textContent = '(en attente...)';
                 });
-                ollamaResponsesDiv.textContent = '';
+                if (ollamaResponsesDiv) {
+                    ollamaResponsesDiv.textContent = '';
+                }
                 return;
             }
 
@@ -257,17 +401,116 @@
                 pre.textContent = text;
             });
 
-            // Pour compatibilité, petit résumé texte dans l’ancien div
-            let html = '<h3>Réponses d’Ollama</h3><ul>';
-            for (const [name, text] of Object.entries(responses)) {
-                html += `
-                    <li>
-                        <strong>${name}</strong><br>
-                        <pre>${text}</pre>
-                    </li>`;
+            if (ollamaResponsesDiv) {
+                ollamaResponsesDiv.textContent = ''; // à remplir si tu veux un résumé global
             }
-            html += '</ul>';
-            ollamaResponsesDiv.innerHTML = html;
+        }
+
+        function updateCountdownVisual() {
+            if (countdownEndTime == null || countdownTotal == null || !countdownTimerDiv) return;
+
+            const now = Date.now();
+            const remainingMs = countdownEndTime - now;
+            const remainingSec = Math.max(0, remainingMs / 1000);
+
+            const s = Math.round(remainingSec);
+            countdownValueSpan.textContent = s + ' s';
+
+            const elapsed = countdownTotal - remainingSec;
+            const ratio = Math.max(0, Math.min(1, elapsed / countdownTotal));
+            const percent = ratio * 100;
+
+            countdownProgressBar.style.width = percent + '%';
+            countdownProgressBar.setAttribute('aria-valuenow', percent.toFixed(0));
+        }
+
+        function startCountdown(totalSeconds) {
+            if (!totalSeconds || totalSeconds <= 0) {
+                stopCountdown();
+                countdownTimerDiv.classList.add('d-none');
+                countdownEndTime = null;
+                countdownTotal = null;
+                return;
+            }
+
+            countdownTotal = totalSeconds;
+            countdownEndTime = Date.now() + totalSeconds * 1000;
+
+            if (countdownInterval) clearInterval(countdownInterval);
+
+            countdownTimerDiv.classList.remove('d-none');
+            updateCountdownVisual();
+
+            countdownInterval = setInterval(() => {
+                updateCountdownVisual();
+                if (Date.now() >= countdownEndTime) {
+                    stopCountdown();
+                }
+            }, 1000);
+        }
+
+        function stopCountdown() {
+            if (countdownInterval) {
+                clearInterval(countdownInterval);
+                countdownInterval = null;
+            }
+        }
+
+        function renderResultsAndLeaderboard(json) {
+            // Ajoute la partie courante dans le classement
+            if (currentPlayerName && typeof json.score === 'number') {
+                leaderboard.push({
+                    name: currentPlayerName,
+                    score: json.score
+                });
+
+                // tri décroissant par score
+                leaderboard.sort((a, b) => b.score - a.score);
+            }
+
+            // top 3
+            const top3 = leaderboard.slice(0, 3);
+
+            // Construction du HTML des erreurs
+            let errorsHtml = '';
+            if (json.errors && typeof json.errors === 'object') {
+                errorsHtml += '<ul class="mb-3">';
+                for (const [name, err] of Object.entries(json.errors)) {
+                    const txt = (err === null || err === undefined)
+                        ? 'N/A'
+                        : err.toFixed(2) + ' %';
+                    errorsHtml += `<li><strong>${name}</strong> : ${txt}</li>`;
+                }
+                errorsHtml += '</ul>';
+            }
+
+            // Construction du HTML du classement
+            let rankingHtml = '';
+            if (top3.length > 0) {
+                rankingHtml += '<p class="mb-1 fw-semibold">🏆 Meilleurs scores</p>';
+                rankingHtml += '<ol class="mb-0">';
+                top3.forEach((entry, idx) => {
+                    rankingHtml += `<li>${entry.name || 'Joueur'} – <strong>${entry.score.toFixed(1)} pts</strong></li>`;
+                });
+                rankingHtml += '</ol>';
+            }
+
+            const playerLabel = currentPlayerName || 'Joueur';
+
+            const html = `
+                <div class="alert alert-info mt-2 mb-0" role="alert">
+                    <h5 class="alert-heading mb-2">Partie terminée 🎉</h5>
+                    <p class="mb-1">
+                        <strong>${playerLabel}</strong>, votre score est de
+                        <strong>${json.score.toFixed(1)} points</strong>.
+                    </p>
+                    <p class="mb-2">Erreurs de température par Raspberry Pi (en %) :</p>
+                    ${errorsHtml}
+                    ${rankingHtml}
+                </div>
+            `;
+
+            gameStatusDiv.innerHTML = html;
         }
 
         gameForm.addEventListener('submit', async (event) => {
@@ -275,6 +518,8 @@
 
             const prompt = document.getElementById('prompt').value;
             const predictions = {};
+            const playerNameInput = document.getElementById('playerName');
+            currentPlayerName = (playerNameInput.value || '').trim() || 'Joueur';
 
             raspberries.forEach((name) => {
                 const value = document.getElementById(`pred-${name}`).value;
@@ -293,18 +538,14 @@
                     renderOllamaResponses(json.ollama_responses);
                     resetMaxTempDisplay();
 
-                    // info optionnelle fournie par le backend : durée de la fenêtre
+                    gameStatusDiv.textContent = `Mesure de la température pendant l'inférence en cours...`;
+
                     if (json.measurement_window_seconds != null) {
-                        gameStatusDiv.textContent =
-                            `Mesure de la température pendant l'inférence en cours...\n` +
-                            `Résultat dans environ ${json.measurement_window_seconds} s.`;
+                        startCountdown(json.measurement_window_seconds);
                     } else {
-                        gameStatusDiv.textContent =
-                            `Mesure de la température pendant l'inférence en cours...`;
+                        startCountdown(null);
                     }
 
-                    // On commence tout de suite à sonder /api/game_status,
-                    // c'est lui qui gère la fenêtre [prompt ; dernière réponse + 10s]
                     startPollingGameStatus();
                 } else {
                     gameStatusDiv.textContent = 'Impossible de lancer la partie.';
@@ -323,30 +564,19 @@
                 if (json.status === 'no_game') return;
 
                 if (json.status === 'waiting') {
-                    if (json.remaining_seconds != null) {
-                        gameStatusDiv.textContent =
-                            `Mesure de la température pendant l'inférence...\n` +
-                            `Encore ${json.remaining_seconds} s environ.`;
-                    } else {
-                        gameStatusDiv.textContent =
-                            `Mesure de la température pendant l'inférence...`;
-                    }
-
+                    // On garde un message simple, le timer visuel fait le reste
+                    gameStatusDiv.textContent = `Mesure de la température pendant l'inférence...`;
                     renderOllamaResponses(json.ollama_responses);
                 }
 
                 if (json.status === 'finished') {
                     clearInterval(gameInterval);
                     gameInterval = null;
+                    stopCountdown();
+                    countdownTimerDiv.classList.add('d-none');
 
-                    let msg = `Partie terminée ! Score : ${json.score.toFixed(1)} points.\n\n`;
-                    msg += 'Erreurs par Raspberry Pi (en °C) :\n';
-
-                    for (const [name, err] of Object.entries(json.errors)) {
-                        msg += `- ${name} : ${err === null ? 'N/A' : err.toFixed(2)}\n`;
-                    }
-
-                    gameStatusDiv.textContent = msg;
+                    // Texte mis en forme + classement
+                    renderResultsAndLeaderboard(json);
 
                     renderOllamaResponses(json.ollama_responses);
                     updateMaxTempsFromBackend(json.actual_temperatures);
@@ -361,6 +591,19 @@
             if (gameInterval) clearInterval(gameInterval);
             gameInterval = setInterval(checkGameStatus, 3000);
         }
+
+        // ----------------------- Interaction boutons modèle -----------------------
+        const modelButtons = document.querySelectorAll('.model-btn');
+        let selectedModel = 'petit';
+
+        modelButtons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                modelButtons.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                selectedModel = btn.getAttribute('data-model');
+                // à toi d'envoyer selectedModel au backend si nécessaire
+            });
+        });
     </script>
 </body>
 </html>

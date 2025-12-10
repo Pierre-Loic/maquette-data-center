@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 app = Flask(__name__)
 
+
 RASPBERRIES = [
     {
         "name": "Refroidissement passif ♨️",
@@ -16,14 +17,33 @@ RASPBERRIES = [
         "temp_url": "http://192.168.137.11:8000/metrics/temperature",
         "ollama_url": "http://192.168.137.11:8000/ollama/generate",
     },
-]
-
-"""
     {
         "name": "Refroidissement actif eau 💧",
         "temp_url": "http://192.168.137.12:8000/metrics/temperature",
         "ollama_url": "http://192.168.137.12:8000/ollama/generate",
-    },"""
+    },
+]
+
+"""
+RASPBERRIES = [
+    {
+        "name": "Refroidissement passif ♨️",
+        "temp_url": "http://127.0.0.1:8000/metrics/temperature",
+        "ollama_url": "http://127.0.0.1:8000/ollama/generate",
+    },
+    {
+        "name": "Refroidissement actif air 💨",
+        "temp_url": "http://127.0.0.1:8001/metrics/temperature",
+        "ollama_url": "http://127.0.0.1:8001/ollama/generate",
+    },
+    {
+         "name": "Refroidissement actif eau 💧",
+         "temp_url": "http://127.0.0.1:8002/metrics/temperature",
+         "ollama_url": "http://127.0.0.1:8002/ollama/generate",
+     },
+]
+"""
+
 
 current_game = {
     "started_at": None,
@@ -186,7 +206,7 @@ def game_status():
             errors[name] = None
             continue
 
-        err = abs(actual - predicted)
+        err = round(abs(actual - predicted)/actual*100, 2) 
         errors[name] = err
         score += max(0.0, 10.0 - err)
 
